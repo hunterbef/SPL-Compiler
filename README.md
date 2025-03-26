@@ -1,2 +1,2 @@
-# 4305Compiler
-Class Compiler Project for CSE 4305
+# SPL Compiler
+Simple Programing Language (SPL) compiler written for CSE 4305
