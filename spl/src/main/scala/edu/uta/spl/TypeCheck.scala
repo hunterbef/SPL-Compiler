@@ -113,7 +113,7 @@ class TypeCheck extends TypeChecker {
            else ltp
 
       /* PUT YOUR CODE HERE */
-      case UnaryOpExp(op,operand)
+      case UnOpExp(op,operand)
         =>  val tp = typecheck(operand)
             op match {
               case "-" => if (typeEquivalence(tp, IntType()) || typeEquivalence(tp, FloatType())) tp
@@ -127,7 +127,7 @@ class TypeCheck extends TypeChecker {
       case FloatConst(value) => FloatType()
       case StringConst(value) => StringType()
       case BooleanConst(value) => BooleanType()
-      case LvalueExp(value) => typecheck(value)
+      case LvalExp(value) => typecheck(value)
 
       case CallExp(name, args) =>
         st.lookup(name) match {
