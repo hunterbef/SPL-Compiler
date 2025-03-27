@@ -64,5 +64,4 @@ class SymbolTable {
   override def toString: String = {
     symbol_table.toString
   }
-
 }

@@ -113,6 +113,32 @@ class TypeCheck extends TypeChecker {
            else ltp
 
       /* PUT YOUR CODE HERE */
+      case UnaryOpExp(op,operand)
+        =>  val tp = typecheck(operand)
+            op match {
+              case "-" => if (typeEquivalence(tp, IntType()) || typeEquivalence(tp, FloatType())) tp
+                          else error("Unary minus can only be applied to an integer or a float: " + operand)
+              case "not" => if (typeEquivalence(tp, BooleanType())) tp
+                            else error("Not operation can only be applied to a boolean: " + operand)
+              case _ => error("Unknown unary operator: " + op)
+            }
+
+      case IntConst(value) => IntType()
+      case FloatConst(value) => FloatType()
+      case StringConst(value) => StringType()
+      case BooleanConst(value) => BooleanType()
+      case LvalueExp(value) => typecheck(value)
+
+      case CallExp(name, args) =>
+        st.lookup(name) match {
+          case Some(FuncDeclaration(outtype, paramtype, _, _, _)) =>
+            if(args.size != paramtype.size) error("Function call argument mismatch: " + name)
+            args.zip(paramtype).foreach{ case (arg, paramtype) =>
+              if (!typeEquivalence(typecheck(arg), paramtype)) error("Argument type mismatch in function call: " + name)
+            }
+            outtype
+          case _ => error("Undefined function: " + name)
+        }
 
       case _ => throw new Error("Wrong expression: "+e)
     } )
