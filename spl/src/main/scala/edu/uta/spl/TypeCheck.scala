@@ -150,7 +150,7 @@ class TypeCheck extends TypeChecker {
     trace(e,e match {
       case Var(name)
         => st.lookup(name) match {
-              case Some(VarDeclaration(t,_,_)) => t
+              case Some(VarDeclaration(t, _, _)) => t
               case Some(_) => error(name+" is not a variable")
               case None => error("Undefined variable: "+name)
         }
@@ -160,10 +160,10 @@ class TypeCheck extends TypeChecker {
         val arrType = typecheck(array)
         arrType match {
           case ArrayType(elemType) =>
-            if(!typeEquivalence(typecheck(index), IntType()))
-              error("Array index must be an integer: " + array)
+            if(!typeEquivalence(typecheck(index), IntType())) error("Array index must be an integer: " + array)
             else elemType
         }
+
       case RecordDeref(record, attribute) =>
         val recordType = typecheck(record)
         recordType match {
@@ -175,6 +175,7 @@ class TypeCheck extends TypeChecker {
 
           case _ => error("Unable to access field in a non-record: " + record)
         }
+
       case TupleDeref(tuple, index) =>
         val tupleType = typecheck(tuple)
         tupleType match {
@@ -183,6 +184,7 @@ class TypeCheck extends TypeChecker {
             else components(index)
           case _ => error("Unable to index a non-tuple: " + tuple)
         }
+
       case _ => throw new Error("Wrong lvalue: "+e)
     } )
 
@@ -194,6 +196,51 @@ class TypeCheck extends TypeChecker {
               error("Incompatible types in assignment: "+e)
 
       /* PUT YOUR CODE HERE */
+      case CallSt(name, arguments) =>
+        st.lookup(name) match {
+          case Some(FuncDeclaration(outtype, params, _, _, _)) =>
+            if(arguments.size != params.size) error("Function call argument mismatch: " + name)
+            arguments.zip(params).foreach { case (arg, Bind(_, paramType)) =>
+              if(!typeEquivalence(typecheck(arg), paramType)) error("Function call argument mismatch: " + name)
+            }
+          case _ => error("Undefined function: " + name)
+        }
+
+      case ReadSt(arguments) =>
+        arguments.foreach(value => typecheck(value))
+
+      case PrintSt(arguments) =>
+        arguments.foreach(arg => typecheck(arg))
+
+      case IfSt(condition, then_stmt, else_stmt) =>
+        if(!typeEquivalence(typecheck(condition), BooleanType())) error("If statement condition must be boolean: " + condition)
+        typecheck(then_stmt, expected_type)
+        typecheck(else_stmt, expected_type)
+
+      case WhileSt(condition, body) =>
+        if(!typeEquivalence(typecheck(condition), BooleanType())) error("While statement condition must be boolean: " + condition)
+        typecheck(body, expected_type)
+
+      case LoopSt(body) =>
+        typecheck(body, expected_type)
+
+      case ForSt(variable, initial, step, increment, body) =>
+        if(!typeEquivalence(typecheck(initial), IntType())) error("For statement initial expression must be an integer: " + initial)
+        if(!typeEquivalence(typecheck(step), IntType())) error("For statement step expression must be an integer: " + step)
+        if(!typeEquivalence(typecheck(increment), IntType())) error("For statement increment expression must be an integer: " + increment)
+        st.begin_scope()
+        st.insert(variable, VarDeclaration(IntType(), 0, 0))
+        typecheck(body, expected_type)
+        st.end_scope()
+
+      case ExitSt() =>
+        ()
+
+      case ReturnValueSt(value) =>
+        if(!typeEquivalence(typecheck(value), expected_type)) error("Return type mismatch: " + value)
+
+      case ReturnSt() =>
+        if(!typeEquivalence(expected_type, NoType())) error("Empty return statement not allowed in function with return type.")
 
       case _ => throw new Error("Wrong statement: "+e)
     } )
@@ -210,7 +257,12 @@ class TypeCheck extends TypeChecker {
            st.end_scope()
 
       /* PUT YOUR CODE HERE */
+      case TypeDef(name, isType) =>
+        st.insert(name,TypeDeclaration(isType))
 
+      case  VarDef(name, hasType, value) =>
+        if(!typeEquivalence(hasType, typecheck(value))) error("Variable definition type mismatch: " + name)
+        st.insert(name, VarDeclaration(hasType, 0, 0))
       case _ => throw new Error("Wrong statement: "+e)
     } )
   }
