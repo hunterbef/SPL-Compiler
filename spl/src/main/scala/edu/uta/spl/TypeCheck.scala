@@ -129,12 +129,14 @@ class TypeCheck extends TypeChecker {
       case BooleanConst(value) => BooleanType()
       case LvalExp(value) => typecheck(value)
 
-      case CallExp(name, args) =>
+      case CallExp(name, arguments) =>
         st.lookup(name) match {
-          case Some(FuncDeclaration(outtype, paramtype, _, _, _)) =>
-            if(args.size != paramtype.size) error("Function call argument mismatch: " + name)
-            args.zip(paramtype).foreach{ case (arg, paramtype) =>
-              if (!typeEquivalence(typecheck(arg), paramtype)) error("Argument type mismatch in function call: " + name)
+          case Some(FuncDeclaration(outtype, params, _, _, _)) =>
+            if(arguments.length != params.length) error("Function call argument count mismatch: " + name)
+            else {
+              arguments.zip(params).foreach{ case (arg, Bind(_, paramType)) =>
+                if (!typeEquivalence(typecheck(arg), paramType)) error("Argument type mismatch in function call: " + name)
+              }
             }
             outtype
           case _ => error("Undefined function: " + name)
@@ -154,7 +156,33 @@ class TypeCheck extends TypeChecker {
         }
 
       /* PUT YOUR CODE HERE */
+      case ArrayDeref(array, index) =>
+        val arrType = typecheck(array)
+        arrType match {
+          case ArrayType(elemType) =>
+            if(!typeEquivalence(typecheck(index), IntType()))
+              error("Array index must be an integer: " + array)
+            else elemType
+        }
+      case RecordDeref(record, attribute) =>
+        val recordType = typecheck(record)
+        recordType match {
+          case RecordType(fields) =>
+            fields.find(b => b.name == attribute) match {
+              case Some(Bind(_, fieldType)) => fieldType
+              case None => error("Field not found in record: " + attribute)
+            }
 
+          case _ => error("Unable to access field in a non-record: " + record)
+        }
+      case TupleDeref(tuple, index) =>
+        val tupleType = typecheck(tuple)
+        tupleType match {
+          case TupleType(components) =>
+            if(index < 0 || index >= components.length) error("Tuple index out of bounds: " + index)
+            else components(index)
+          case _ => error("Unable to index a non-tuple: " + tuple)
+        }
       case _ => throw new Error("Wrong lvalue: "+e)
     } )
 
