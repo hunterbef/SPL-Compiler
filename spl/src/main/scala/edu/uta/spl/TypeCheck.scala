@@ -113,21 +113,22 @@ class TypeCheck extends TypeChecker {
            else ltp
 
       /* PUT YOUR CODE HERE */
-      case UnOpExp(op,operand)
-        =>  val tp = typecheck(operand)
-            op match {
-              case "-" => if (typeEquivalence(tp, IntType()) || typeEquivalence(tp, FloatType())) tp
-                          else error("Unary minus can only be applied to an integer or a float: " + operand)
-              case "not" => if (typeEquivalence(tp, BooleanType())) tp
-                            else error("Not operation can only be applied to a boolean: " + operand)
-              case _ => error("Unknown unary operator: " + op)
-            }
-
       case IntConst(value) => IntType()
       case FloatConst(value) => FloatType()
       case StringConst(value) => StringType()
       case BooleanConst(value) => BooleanType()
       case LvalExp(value) => typecheck(value)
+      case NullExp() => AnyType()
+
+      case UnOpExp(op,operand)
+        =>  val tp = typecheck(operand)
+            op match {
+              case "-" | "minus" => if (typeEquivalence(tp, IntType()) || typeEquivalence(tp, FloatType())) tp
+                          else error("Unary minus can only be applied to an integer or a float: " + operand)
+              case "not" => if (typeEquivalence(tp, BooleanType())) tp
+                            else error("Not operation can only be applied to a boolean: " + operand)
+              case _ => error("Unknown unary operator: " + op)
+            }
 
       case CallExp(name, arguments) =>
         st.lookup(name) match {
@@ -141,6 +142,32 @@ class TypeCheck extends TypeChecker {
             outtype
           case _ => error("Undefined function: " + name)
         }
+
+      case RecordExp(components) =>
+        val fieldTypes = components.map {
+          case Bind(fieldName, fieldExpr) =>
+            Bind(fieldName, typecheck(fieldExpr))
+        }
+        RecordType(fieldTypes)
+
+      case ArrayExp(elements) =>
+        if(elements.isEmpty) error("Array cannot be empty: " + elements)
+        else {
+          val arrayType = typecheck(elements.head)
+          elements.foreach { e =>
+            if(!typeEquivalence(typecheck(e), arrayType)) error("Array element type mismatch: " + e)
+          }
+          ArrayType(arrayType)
+        }
+
+      case ArrayGen(length, value) =>
+        if(!typeEquivalence(typecheck(length), IntType())) error("Length of array must be an int: " + length)
+        val arrayType = typecheck(value)
+        ArrayType(arrayType)
+
+      case TupleExp(elements) =>
+        val elemTypes = elements.map(e => typecheck(e))
+        TupleType(elemTypes)
 
       case _ => throw new Error("Wrong expression: "+e)
     } )
@@ -165,7 +192,7 @@ class TypeCheck extends TypeChecker {
         }
 
       case RecordDeref(record, attribute) =>
-        val recordType = typecheck(record)
+        val recordType = expandType(typecheck(record))
         recordType match {
           case RecordType(fields) =>
             fields.find(b => b.name == attribute) match {
@@ -215,7 +242,8 @@ class TypeCheck extends TypeChecker {
       case IfSt(condition, then_stmt, else_stmt) =>
         if(!typeEquivalence(typecheck(condition), BooleanType())) error("If statement condition must be boolean: " + condition)
         typecheck(then_stmt, expected_type)
-        typecheck(else_stmt, expected_type)
+        if(else_stmt != null) typecheck(else_stmt, expected_type)
+        else ()
 
       case WhileSt(condition, body) =>
         if(!typeEquivalence(typecheck(condition), BooleanType())) error("While statement condition must be boolean: " + condition)
@@ -242,6 +270,12 @@ class TypeCheck extends TypeChecker {
       case ReturnSt() =>
         if(!typeEquivalence(expected_type, NoType())) error("Empty return statement not allowed in function with return type.")
 
+      case BlockSt(decls, stmts) =>
+        st.begin_scope()
+        decls.foreach(typecheck)
+        stmts.foreach(x => typecheck(x, expected_type))
+        st.end_scope()
+
       case _ => throw new Error("Wrong statement: "+e)
     } )
   }
@@ -262,8 +296,12 @@ class TypeCheck extends TypeChecker {
 
       case  VarDef(name, hasType, value) =>
         if(!typeEquivalence(hasType, typecheck(value))) error("Variable definition type mismatch: " + name)
-        st.insert(name, VarDeclaration(hasType, 0, 0))
-      case _ => throw new Error("Wrong statement: "+e)
+        val realType = hasType match {
+          case AnyType() => typecheck(value)
+          case _ => hasType
+        }
+        st.insert(name, VarDeclaration(realType, 0, 0))
+      case _ => throw new Error("Wrong statement: " + e)
     } )
   }
 
