@@ -121,10 +121,10 @@ start with program;
 
 program         ::= block_content:b                                                 {: SPL.setAST(new Program(b)); :}
                 ;
-block_content   ::= defs:dl stmts:sl                                                {: RESULT = new BlockSt(dl,sl); :}
-                |   stmts:sl                                                        {: RESULT = new BlockSt(nil,sl); :}
+block_content   ::= defs:dl stmts:sl                                                {: RESULT = new BlockSt(dl, sl); :}
+                |   stmts:sl                                                        {: RESULT = new BlockSt(nil, sl); :}
                 ;
-def             ::= VAR ID:nm EQUAL expr:e                                              {: RESULT = new VarDef(nm, new NoType(), e); :}
+def             ::= VAR ID:nm EQUAL expr:e                                              {: RESULT = new VarDef(nm, new AnyType(), e); :}
                 |   VAR ID:nm COLON type:t EQUAL expr:e                                 {: RESULT = new VarDef(nm, t, e); :}
                 |   TYPE ID:nm EQUAL type:t                                             {: RESULT = new TypeDef(nm, t); :}
                 |   DEF ID:nm LP RP LB block_content:b RB                               {: RESULT = new FuncDef(nm, nil, new NoType(), b); :}
@@ -151,11 +151,9 @@ type_binds      ::= ID:nm COLON type:t                                          
 types           ::= type:t                                                          {: RESULT = append(nil,t); :}
                 |   types:ts COMMA type:t                                           {: RESULT = append(ts, t); :}
                 ;
-lvalue          ::= expr:e1 LSB expr:e2 RSB                                         {: RESULT = new ArrayDeref(e1, e2); :}
-                |   expr:e DOT ID:nm                                                {: RESULT = new RecordDeref(e, nm); :}
+lvalue          ::= lvalue:lv LSB expr:e RSB                                        {: RESULT = new ArrayDeref(new LvalExp(lv), e); :}
+                |   lvalue:lv DOT ID:nm                                             {: RESULT = new RecordDeref(new LvalExp(lv), nm); :}
                 |   expr:e SHARP INTEGER_LITERAL:n                                  {: RESULT = new TupleDeref(e, n); :}
-                //|   ID:nm                                                           {: RESULT = new Var(nm); :}
-                //unable to test with the ID statement, always got a Shift/Reduce error with it
                 ;
 lvalues         ::= lvalue:lv                                                       {: RESULT = append(nil,lv); :}
                 |   lvalues:lvs COMMA lvalue:lv                                     {: RESULT = append(lvs, lv); :}
@@ -166,7 +164,7 @@ expr            ::= INTEGER_LITERAL:n                                           
                 |   TRUE                                                            {: RESULT = new BooleanConst(true); :}
                 |   FALSE                                                           {: RESULT = new BooleanConst(false); :}
                 |   lvalue:lv                                                       {: RESULT = new LvalExp(lv); :}
-                |   MINUS expr:e                                                    {: RESULT = new UnOpExp("uminus", e);:} %prec UMINUS
+                |   MINUS expr:e                                                   {: RESULT = new UnOpExp("uminus", e);:} %prec UMINUS
                 |   NOT expr:e                                                      {: RESULT = new UnOpExp("not", e); :}
                 |   expr:e1 PLUS expr:e2                                            {: RESULT = new BinOpExp("plus",e1,e2); :}
                 |   expr:e1 MINUS expr:e2                                           {: RESULT = new BinOpExp("minus",e1,e2); :}
@@ -198,13 +196,13 @@ assign_list     ::= ID:nm EQUAL expr:e                                          
 stmt            ::= lvalue:lv EQUAL expr:e                                          {: RESULT = new AssignSt(lv, e); :}
                 |   ID:nm LP RP                                                     {: RESULT = new CallSt(nm, nil); :}
                 |   ID:nm LP expl:el RP                                             {: RESULT = new CallSt(nm, el); :}
-                |   LB block_content:b RB                                           {: RESULT = new BlockSt(nil, nil); :}
+                |   LB block_content:b RB                                           {: RESULT = b; :}
                 |   READ LP lvalues:lvs RP                                          {: RESULT = new ReadSt(lvs); :}
                 |   PRINT LP RP                                                     {: RESULT = new PrintSt(nil); :}
                 |   PRINT LP expl:el RP                                             {: RESULT = new PrintSt(el); :}
                 |   IF LP expr:e RP stmt:s1                                         {: RESULT = new IfSt(e, s1, null); :}
                 |   IF LP expr:e RP stmt:s1 ELSE stmt:s2                            {: RESULT = new IfSt(e, s1, s2); :}
-                |   FOR LP ID:nm EQUAL expr:e1 TO expr:e2 RP stmt:s                 {: RESULT = new ForSt(nm, e1, e2, null, s); :}
+                |   FOR LP ID:nm EQUAL expr:e1 TO expr:e2 RP stmt:s                 {: RESULT = new ForSt(nm, e1, e2, new IntConst(1), s); :}
                 |   FOR LP ID:nm EQUAL expr:e1 TO expr:e2 BY expr:e3 RP stmt:s      {: RESULT = new ForSt(nm, e1, e2, e3, s); :}
                 |   WHILE LP expr:e RP stmt:s                                       {: RESULT = new WhileSt(e, s); :}
                 |   LOOP stmt:s                                                     {: RESULT = new LoopSt(s); :}
