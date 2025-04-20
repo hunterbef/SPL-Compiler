@@ -88,6 +88,69 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
                 A)
 
       /* PUT YOUR CODE HERE */
+      case IntConst(value) => IntValue(value)
+      case FloatConst(value) => FloatValue(value)
+      case StringConst(value) => StringValue(value)
+      case BooleanConst(value) => if (value) IntValue(1) else IntValue(0)
+      case LvalExp(value) => code(value, level, fname)
+      case NullExp() => IntValue(0)
+      case UnOpExp(op, operand) =>
+        val uop = op.toLowerCase match {
+          case "-" | "minus" => "MINUS"
+          case "not" => "NOT"
+          case other => other.toUpperCase
+        }
+        Unop(uop, code(operand, level, fname))
+
+      case CallExp(name, arguments) =>
+        st.lookup(name) match {
+          case Some(FuncDeclaration(rtp, params, label, call_level, _)) =>
+            val x = level - call_level
+            val y = if(call_level == level + 1)
+                      Reg("fp")
+                    else
+                    {
+                      var res: IRexp = Reg("fp")
+                      for(i <- 0 to x)
+                        res = Mem(Binop("PLUS", res, IntValue(-8)))
+                      res
+                    }
+            val args = arguments.map(arg => code(arg, level, fname))
+            Call(label, y, args)
+          case _ => throw new Error("Undefined function: " + name)
+        }
+
+      case RecordExp(components) =>
+        val size = components.length
+        val records = allocate_variable(new_name("R"), typechecker.typecheck(e), fname)
+        val moves = components.zipWithIndex.map {
+          case (Bind(field, expr), i) =>
+            Move(Mem(Binop("PLUS", records, IntValue(size))), code(expr, level, fname))
+        }
+        ESeq(Seq(Move(records, Allocate(IntValue(size))) :: moves.toList), records)
+
+      case ArrayExp(elements) =>
+        if(elements.isEmpty) throw new Error("Array cannot be empty")
+        val arrayType = typechecker.typecheck(e)
+        val size = elements.length
+        val arrays = allocate_variable(new_name("A"), arrayType, fname)
+        val i = List(Move(arrays, Allocate(IntValue(size + 1))), Move(Mem(arrays), IntValue(size)))
+        val moves = elements.zipWithIndex.map {
+          case (elem, i) =>
+            Move(Mem(Binop("PLUS", arrays, Binop("TIMES", IntValue(i + 1), IntValue(4)))), code(elem, level, fname))
+        }
+        ESeq(Seq(i ++ moves.toList), arrays)
+
+      case TupleExp(elements) =>
+        val tupleType = typechecker.typecheck(e)
+        val size = elements.length
+        val tuples = allocate_variable(new_name("T"), tupleType, fname)
+        val i = List(Move(tuples, Allocate(IntValue(size))))
+        val moves = elements.zipWithIndex.map {
+          case (expr, x) =>
+            Move(Mem(Binop("PLUS", tuples, Binop("TIMES", IntValue(x), IntValue(4)))), code(expr, level, fname))
+        }
+        ESeq(Seq(i ++ moves.toList), tuples)
 
       case _ => throw new Error("Wrong expression: "+e)
     }
@@ -106,6 +169,15 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
            }
 
      /* PUT YOUR CODE HERE */
+     case Var(name) => access_variable(name, level)
+     case ArrayDeref(array, index) =>
+       val ca = code(array, level, fname)
+       val idx = code(index, level, fname)
+       Mem(Binop("PLUS", ca, Binop("TIMES", Binop("PLUS", idx, IntValue(1)), IntValue(4))))
+
+     case TupleDeref(tuple, index) =>
+       val ct = code(tuple, level, fname)
+       Mem(Binop("PLUS", ct, Binop("TIMES", IntValue(index), IntValue(4))))
 
      case _ => throw new Error("Wrong statement: " + e)
     }
@@ -132,6 +204,109 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
                     Label(exit)))
 
       /* PUT YOUR CODE HERE */
+      case AssignSt(destination, source) =>
+        Move(code(destination, level, fname), code(source, level, fname))
+
+      case CallSt(name, arguments) =>
+        st.lookup(name) match {
+          case Some(FuncDeclaration(rtp, params, label, call_level, _)) =>
+            val x = level - call_level
+            val y = if (call_level == level + 1)
+              Reg("fp")
+            else {
+              var link: IRexp = Reg("fp")
+              for(i <- 0 to x)
+                link = Mem(Binop("PLUS", link, IntValue(-8)))
+              link
+            }
+            val args = arguments.map(arg => code(arg, level, fname))
+            CallP(label, y, args)
+          case _ => throw new Error("Function undefined: " + name)
+        }
+
+      case ReadSt(arguments) =>
+        val read = arguments.map {
+          lval =>
+            SystemCall("READ_INT", IntValue(0))
+        }
+        Seq(read)
+
+      case PrintSt(arguments) =>
+        val print = arguments.map {
+          expr =>
+            typechecker.typecheck(expr) match {
+              case IntType() => SystemCall("WRITE_INT", code(expr, level, fname))
+              case FloatType() => SystemCall("WRITE_FLOAT", code(expr, level, fname))
+              case StringType() => SystemCall("WRITE_STRING", code(expr, level, fname))
+              case BooleanType() => SystemCall("WRITE_INT", code(expr, level, fname))
+              case _ => throw new Error("Print statement type mismatch: " + expr)
+            }
+        } :+ SystemCall("WRITE_STRING", StringValue("\n"))
+        Seq(print)
+
+      case IfSt(condition, then_stmt, else_stmt) =>
+        val elseStmt = new_name("else")
+        val join = new_name("join")
+
+        if(else_stmt != null)
+        {
+          Seq(List(
+            CJump(Binop("EQ", code(condition, level, fname), IntValue(0)), elseStmt),
+            code(then_stmt, level, fname, exit_label),
+            Jump(join),
+            Label(elseStmt),
+            code(else_stmt, level, fname, exit_label),
+            Label(join)
+          ))
+        }
+        else
+        {
+          Seq(List(
+            CJump(Binop("EQ", code(condition, level, fname), IntValue(0)), join),
+            code(then_stmt, level, fname, exit_label),
+            Label(join)
+          ))
+        }
+
+      case WhileSt(condition, body) =>
+        val loop = new_name("loop")
+        val exit = new_name("exit")
+        Seq(List(
+          Label(loop),
+          CJump(Binop("EQ", code(condition, level, fname), IntValue(0)), exit),
+          code(body, level, fname, exit),
+          Jump(loop),
+          Label(exit)
+        ))
+
+      case LoopSt(body) =>
+        val loop = new_name("loop")
+        val exit = new_name("exit")
+        Seq(List(
+          Label(loop),
+          code(body, level, fname, exit),
+          Jump(loop),
+          Label(exit)
+        ))
+
+      case ExitSt() =>
+        Jump(exit_label)
+
+      case ReturnValueSt(value) =>
+        Seq(List(
+          Move(Reg("ao"), code(value, level, fname)),
+          Return()
+        ))
+
+      case ReturnSt() =>
+        Return()
+
+      case BlockSt(decls, stmts) =>
+        st.begin_scope()
+        val x = decls.map(d => code(d, fname, level))
+        val y = stmts.map(s => code(s, level, fname, exit_label))
+        st.end_scope()
+        Seq(x ++ y)
 
       case _ => throw new Error("Wrong statement: " + e)
    }
@@ -170,6 +345,18 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
            }
 
       /* PUT YOUR CODE HERE */
+      case TypeDef(name, isType) =>
+        st.insert(name, TypeDeclaration(isType))
+        Seq(List())
+
+      case VarDef(name, hasType, value) =>
+        val isType = hasType match {
+          case AnyType() => typechecker.typecheck(value)
+          case _ => hasType
+        }
+
+        val alloc = allocate_variable(name, isType, fname)
+        Move(alloc, code(value, level, fname))
 
       case _ => throw new Error("Wrong statement: " + e)
     }
